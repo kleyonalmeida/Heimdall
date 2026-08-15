@@ -35,6 +35,6 @@ public class UiTests
         ConsolePresenter.PrintBanner(writer);
 
         var output = writer.ToString();
-        Assert.Contains("cem olhos, nenhum descanso", output);
+        Assert.Contains("O Guardião Inabalável.", output);
     }
 }
