@@ -35,7 +35,6 @@ public class UiTests
         ConsolePresenter.PrintBanner(writer);
 
         var output = writer.ToString();
-        Assert.Contains("HEIMDALL", output);
-        Assert.Contains("●", output); // pupila do olho
+        Assert.Contains("cem olhos, nenhum descanso", output);
     }
 }
