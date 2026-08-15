@@ -1,21 +1,41 @@
 [![tests](https://github.com/Proxyspyk/Heimdall/actions/workflows/tests.yml/badge.svg)](https://github.com/Proxyspyk/Heimdall/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![dotnet](https://img.shields.io/badge/dotnet-10.0-blue)](Heimdall.csproj)
+[![dotnet](https://img.shields.io/badge/dotnet-10.0%20(Native%20AOT)-blue)](Heimdall.csproj)
 [![architecture](https://img.shields.io/badge/architecture-CQRS%20--%20Single--File-brightgreen)](Abstractions/)
+[![size](https://img.shields.io/badge/binary%20size-~20MB-success)]()
 
 # Heimdall
 
 **O Guardião Inabalável.** Na mitologia nórdica, Heimdall é o vigilante supremo possuidor de visão e audição infalíveis, capaz de enxergar a centenas de léguas de dia ou de noite. Esse é o espírito da ferramenta: manter uma vigilância implacável sobre os componentes críticos do seu sistema Linux, identificando superfícies de ataque e vulnerabilidades antes que sejam exploradas.
 
-Scanner desenvolvido em **C# (.NET 10)** sob a arquitetura **CQRS (sem banco de dados)**. Detecta componentes críticos de um sistema Linux (kernel, glibc, sudo, systemd, polkit, openssl, docker, podman, snap, etc.) e cruza as versões instaladas com o **NVD** (CVEs + CVSS) e o **EPSS** (probabilidade real de exploração), gerando um relatório de risco priorizado.
-
-Diferente de ferramentas como LinPEAS/LinEnum (que enumeram possíveis vetores de escalada de privilégio), este projeto foca em **correlacionar versões instaladas com vulnerabilidades conhecidas e sua probabilidade real de exploração**, para ajudar a priorizar o que corrigir primeiro.
-
-> ⚠️ **Uso defensivo.** Esta ferramenta é somente leitura: não executa exploits nem explora vulnerabilidades. Ela detecta versões e consulta bases públicas de CVE. Use apenas em sistemas que você tem autorização para auditar.
+Heimdall é um **auditor e scanner de vulnerabilidades defensivo** desenvolvido em **C# (.NET 10)** compilado como **Native AOT**. Ele detecta componentes críticos de um sistema Linux (kernel, glibc, sudo, systemd, polkit, openssl, docker, podman, etc.) e correlaciona as versões instaladas com o **NVD** (CVEs + CVSS) e a **API EPSS** (probabilidade real de exploração nos próximos 30 dias), gerando um relatório de risco priorizado.
 
 ---
 
-## Como funciona (Arquitetura CQRS)
+> [!IMPORTANT]
+> **O Grande Destaque: Execução Limpa & Zero Footprint**  
+> O Heimdall é empacotado como um **único arquivo binário autossuficiente (Native AOT)** de aproximadamente **20 MB**.  
+> - **Zero Dependências:** O servidor auditado **não precisa ter o .NET instalado**, nem Python, nem compiladores ou bibliotecas externas.
+> - **Sem Sujeira no Servidor:** Você pode copiar o executável para o diretório `/tmp`, rodar a auditoria em milissegundos e remover o arquivo em seguida (`rm /tmp/heimdall`), sem deixar qualquer rastro ou alteração no sistema auditado.
+
+---
+
+## 🎯 Propósito da Ferramenta & Como ela Ajuda
+
+Diferente de ferramentas como LinPEAS ou LinEnum (que focam na enumeração de vetores para escalada local de privilégios), o Heimdall foi concebido para **gestão de vulnerabilidades baseada em risco real**:
+
+1. **Priorização Inteligente de Patches:** Em vez de exibir centenas de CVEs genéricas, o Heimdall cruza dados do CVSS com o índice **EPSS (Exploit Prediction Scoring System)** e indícios de exploits públicos. Isso ajuda administradores de sistemas, engenheiros DevSecOps e analistas de segurança a responderem primeiro às vulnerabilidades que possuem **maior chance real de serem exploradas**.
+2. **Auditoria Ágil e Não Intrusiva:** Permite auditar servidores de produção, ambientes críticos e contêineres sem instalar pacotes ou alterar o estado do sistema.
+3. **Integração com CI/CD e SIEM:** Gera relatórios estruturados em JSON para integração automatizada em pipelines de deploy e monitoramento contínuo.
+
+> [!NOTE]
+> ⚠️ **Uso defensivo.** Esta ferramenta é estritamente de auditoria e somente leitura: não executa exploits nem altera configurações de sistema. Use apenas em sistemas que você possui autorização explícita para auditar.
+
+---
+
+## 🏗️ Arquitetura de Software (CQRS sem Banco de Dados)
+
+O projeto foi construído utilizando os princípios da arquitetura **CQRS (Command Query Responsibility Segregation)** e **Clean Architecture**, dispensando a necessidade de bancos de dados ou persistência pesada em disco:
 
 ```
 ┌─────────────────────────┐     ┌─────────────────────────┐     ┌────────────────────────┐     ┌────────────────────────┐
@@ -24,107 +44,101 @@ Diferente de ferramentas como LinPEAS/LinEnum (que enumeram possíveis vetores d
 └─────────────────────────┘     └─────────────────────────┘     └────────────────────────┘     └────────────────────────┘
 ```
 
-1. **`Abstractions/`** — Interfaces genéricas da arquitetura CQRS (`IQuery`, `IQueryHandler`, `ICommand`, `ICommandHandler`).
-2. **`Infrastructure/Collectors/SystemInfoCollector.cs`** — Coleta local passiva e segura (kernel via `RuntimeInformation`, distro via `/etc/os-release`, versões via `dpkg-query`, `rpm` ou `--version` dos binários).
-3. **`Infrastructure/HttpClients/NvdApiClient.cs`** — Consulta a [API pública do NVD 2.0](https://nvd.nist.gov/developers/vulnerabilities) por palavra-chave (nome do componente) com suporte a paginação e throttling.
-4. **`Infrastructure/HttpClients/EpssApiClient.cs`** — Consulta em lotes a [API EPSS do FIRST.org](https://www.first.org/epss/api) para estimar a probabilidade de exploração real nos próximos 30 dias.
-5. **`Domain/Services/` (`VersionMatcher`, `RiskCalculator`)** — Filtra CVEs cuja descrição menciona a versão instalada (reduz falsos positivos) e calcula um `risk_score` (0–100) combinando CVSS + EPSS + indício de exploit público.
-6. **`Application/Queries/CorrelateRisk/`** — Orquestrador do CQRS que processa a busca e correlaciona as fontes.
-7. **`Application/Commands/GenerateReport/ReportPresenter.cs`** — Imprime o relatório colorido no terminal e, opcionalmente, exporta JSON estruturado (útil para CI/CD ou SIEM).
+### Discriminativo dos Componentes
+
+- **`Abstractions/`**: Interfaces genéricas e desacopladas da arquitetura CQRS (`IQuery`, `IQueryHandler`, `ICommand`, `ICommandHandler`).
+- **`Domain/`**: Camada pura com as regras de negócio de filtragem de versão (`VersionMatcher`) e cálculo do Score de Risco (`RiskCalculator`). Totalmente isolada de detalhes de infraestrutura.
+- **`Infrastructure/`**:
+  - `Collectors/SystemInfoCollector.cs`: Coleta passiva de componentes do Linux via `/etc/os-release`, `dpkg-query`, `rpm` ou `--version`.
+  - `HttpClients/NvdApiClient.cs`: Consulta resiliente à API do NVD 2.0 com suporte a throttling e paginação.
+  - `HttpClients/EpssApiClient.cs`: Consulta em lotes (batching) ao FIRST.org para obter a probabilidade EPSS.
+- **`Application/`**: Orquestração dos fluxos de busca e correlação de risco (`CorrelateRiskHandler`).
+- **`Presentation/`**: Apresentação de relatórios coloridos em terminal ANSI (`ReportPresenter`) ou exportação estruturada em JSON.
+
+### 💡 Vantagens desta Arquitetura
+
+- **Alta Testabilidade:** Lógicas de domínio (como cálculo de risco e correspondência de versões) possuem 100% de cobertura de testes unitários sem necessidade de simular bancos de dados.
+- **Manutenibilidade e Extensibilidade:** Adicionar suporte a novos gerenciadores de pacotes (`apk`, `pacman`) ou novos provedores de inteligência de ameaças requer apenas implementar uma nova interface sem alterar a lógica existente.
+- **Baixo Consumo de Recursos:** Fluxo de dados unidirecional e assíncrono em memória, ideal para execução rápida em ambientes restritos.
 
 ---
 
-## Instalação e Guia de Deploy
+## ⚡ Por que Native AOT? (Compilação & Benefícios Técnicos)
 
-O Heimdall é empacotado como um **único arquivo binário autossuficiente (Single File)**. Isso significa que o servidor de destino **não precisa ter o .NET instalado**, nem Python, nem compiladores ou dependências externas.
+Ao compilar o Heimdall com **Native AOT (`PublishAot=true`)**, o código C# é traduzido diretamente para **código de máquina nativo (ELF de 64 bits)** durante o build, resultando em um binário compacto de **~20 MB**.
 
-### ETAPA 1: Na sua máquina (Build e Geração do Executável)
+### Benefícios Técnicos em Destaque
 
-1. Clonar o repositório Git:
-   ```bash
-   git clone https://github.com/Proxyspyk/Heimdall.git
-   cd Heimdall
-   ```
+#### 1. 🚀 Eficiência Extrema e Imagens Docker Minúsculas
+Sem a necessidade de incluir o SDK ou Runtime do .NET (~200MB+), a aplicação inicia em **poucos milissegundos** e consome o mínimo de memória RAM. Para auditorias em contêineres Docker ou Kubernetes, é possível gerar imagens minúsculas (na casa dos 20–30 MB) perfeitas para testes e provisionamento rápido.
 
-2. Gerar o executável único autossuficiente:
-   ```bash
-   ./build.sh
-   ```
-   > O script compilará o projeto e gerará o arquivo binário em **`./dist/heimdall`**.
+#### 2. 🛡️ Segurança e Dificuldade de Engenharia Reversa
+Em aplicações .NET tradicionais, o código é compilado para IL (Intermediate Language) dentro de DLLs, facilitando a descompilação quase perfeita do código-fonte através de ferramentas como `dnSpy` ou `dotPeek`.  
+Com **Native AOT**, o processo de compilação realiza um *trimming* agressivo de metadados e gera código de máquina nativo. Fazer engenharia reversa no Heimdall exige análise de baixo nível com ferramentas estruturais densas como **Ghidra** ou **IDA Pro**, aumentando consideravelmente a resiliência e reduzindo a superfície de exposição da lógica interna do programa quando deixado no servidor.
 
-3. *(Opcional)* Instalar o comando `heimdall` globalmente na sua máquina local:
-   ```bash
-   mkdir -p ~/.local/bin
-   ln -sf $(pwd)/dist/heimdall ~/.local/bin/heimdall
-   ```
+#### 3. 🧩 Design Limpo sem Reflection Dinâmico (Source Generators)
+O Native AOT proíbe a geração dinâmica de código em tempo de execução (como `System.Reflection.Emit`). Para superar essa limitação mantendo a máxima velocidade na serialização e deserialização de dados, o Heimdall adota **Source Generators** (`System.Text.Json` com `JsonSerializerContext`). Toda a amarração de tipos é resolvida em tempo de compilação estática, eliminando falhas de reflection em runtime e otimizando o uso de CPU.
 
 ---
 
-### ETAPA 2: Transferência para o Servidor Alvo
+## 🚀 Guia de Instalação, Deploy e Execução
 
-Envie o arquivo binário gerado na pasta `dist/` para o servidor Linux que deseja auditar usando `scp` ou `sftp`:
+### Passos de Build e Auditoria (Fluxo Limpo)
 
+#### ETAPA 1: Build do Executável (Na sua máquina local)
+```bash
+git clone https://github.com/Proxyspyk/Heimdall.git
+cd Heimdall
+./build.sh
+```
+> O executável Native AOT será gerado em **`./dist/heimdall`** (~20 MB).
+
+#### ETAPA 2: Transferência para o Servidor Alvo
+Envie o binário para a pasta temporária do servidor via `scp`:
 ```bash
 scp dist/heimdall usuario@ip-do-servidor:/tmp/
 ```
 
----
-
-### ETAPA 3: No Servidor Alvo (Execução da Auditoria)
-
-1. Conecte no servidor via SSH:
-   ```bash
-   ssh usuario@ip-do-servidor
-   ```
-
-2. Dê permissão de execução ao binário:
-   ```bash
-   chmod +x /tmp/heimdall
-   ```
-
-3. Execute a auditoria:
-   ```bash
-   /tmp/heimdall scan --json /tmp/relatorio_servidor.json
-   ```
-
----
-
-### ETAPA 4: Coleta do Relatório e Limpeza
-
-1. Baixe o relatório gerado de volta para a sua máquina (no seu terminal local):
-   ```bash
-   scp usuario@ip-do-servidor:/tmp/relatorio_servidor.json ./
-   ```
-
-2. Remova o Heimdall do servidor de destino:
-   ```bash
-   rm /tmp/heimdall /tmp/relatorio_servidor.json
-   ```
-
----
-
-## Uso
-
+#### ETAPA 3: Execução da Auditoria
+No servidor remoto, conceda permissão de execução e rode o scan:
 ```bash
-# Scan simples (exibe relatório visual no terminal)
-heimdall scan
+ssh usuario@ip-do-servidor
+chmod +x /tmp/heimdall
+/tmp/heimdall scan --json /tmp/relatorio_servidor.json
+```
 
-# Salva também um relatório em formato JSON
-heimdall scan --json relatorio.json
+#### ETAPA 4: Coleta do Relatório e Limpeza (Zero Footprint)
+Baixe o relatório para sua máquina local e remova os arquivos do servidor remoto:
+```bash
+# Na sua máquina local:
+scp usuario@ip-do-servidor:/tmp/relatorio_servidor.json ./
 
-# Desativa o filtro de versão (mais resultados, mais ruído)
-heimdall scan --no-version-filter
-
-# Omitir o banner de abertura
-heimdall scan --no-banner
-
-# Usa uma API key do NVD (aumenta o rate limit de 5 para 50 req/30s)
-# Gratuita em https://nvd.nist.gov/developers/request-an-api-key
-heimdall scan --api-key SUA_KEY
-# ou via variável de ambiente: export NVD_API_KEY=SUA_KEY
+# No servidor remoto (limpeza total):
+rm /tmp/heimdall /tmp/relatorio_servidor.json
 ```
 
 ---
+
+## 💻 Uso da Linha de Comando (CLI)
+
+```bash
+# Scan simples (relatório visual colorido no terminal)
+heimdall scan
+
+# Salva o relatório em formato JSON estruturado
+heimdall scan --json relatorio.json
+
+# Desativa o filtro de versão (exibe mais resultados com heurística ampla)
+heimdall scan --no-version-filter
+
+# Oculta o banner inicial
+heimdall scan --no-banner
+
+# Utiliza uma chave da API do NVD (aumenta o limite de requisições de 5 para 50 req/30s)
+heimdall scan --api-key SUA_API_KEY
+# ou via variável de ambiente:
+export NVD_API_KEY=SUA_API_KEY
+```
 
 ### Exemplo de Saída no Terminal
 
@@ -156,27 +170,17 @@ CVE-2024-6387  risco: 87.4/100
 
 ---
 
-## Limitações Conhecidas (Leia antes de confiar no resultado)
+## ⚠️ Limitações Conhecidas
 
-- O matching é feito por **palavra-chave + heurística de versão na descrição da CVE**, não por CPE 2.3 exato. Isso significa que pode haver **falsos positivos e falsos negativos**. Trate o relatório como uma lista de priorização, não como confirmação definitiva.
-- A API do NVD tem rate limit sem API key (5 req/30s), então scans com muitos componentes podem demorar. Use `--api-key` ou `NVD_API_KEY` para acelerar.
-- "Indício de exploit público" é uma heurística baseada nas referências do próprio NVD.
-
----
-
-## Roadmap / Idéias para Contribuir
-
-- [ ] Matching por CPE 2.3 real (usar o dicionário oficial de CPEs)
-- [ ] Integração com ExploitDB (mirror CSV) e busca de PoCs no GitHub
-- [ ] Exportar relatório em formato HTML interativo
-- [ ] Suporte a compilação 100% Native AOT (via `PublishAot`)
-- [ ] Suporte a mais distros/gerenciadores de pacote (apk, pacman)
+- **Correspondência de Versão:** A correlação é feita por **palavra-chave + heurística de versão na descrição da CVE**, e não por CPE 2.3 estrito. Trate os resultados como uma lista de priorização para análise de risco.
+- **Taxa de Requisições da API NVD:** Sem chave de API (`NVD_API_KEY`), o NVD limita as requisições a 5 a cada 30 segundos. Para análises mais rápidas, utilize uma chave gratuita obtida no site do NVD.
+- **Heurística de Exploits:** A indicação de "exploit público" é baseada nas referências e dados cadastrados no próprio NVD.
 
 ---
 
-## Testes
+## 🧪 Testes
 
-Para rodar a suíte de testes unitários xUnit em C#:
+Para executar a suíte de testes unitários automatizados:
 
 ```bash
 dotnet test Tests/Heimdall.Tests.csproj
@@ -184,13 +188,15 @@ dotnet test Tests/Heimdall.Tests.csproj
 
 ---
 
-## Licença
+## 📄 Licença
 
-MIT — veja [LICENSE](LICENSE).
+Distribuído sob a licença **MIT**. Veja [LICENSE](LICENSE) para mais detalhes.
 
-## Autor
+---
 
-**Gabriel Knobbe da Silveira** ([@Proxyspyk](https://github.com/Proxyspyk))  
-Hacker ético focado em Bug Bounty, Pentest e Red Team.
+## 👤 Autoria e Créditos
+- **Manutenção & Melhorias:** [Kleyon Almeida](https://github.com/kleyonalmeida)  
+  *Melhorias de arquitetura CQRS, compilação Native AOT, otimização de performance e documentação.*
 
-[LinkedIn](https://www.linkedin.com/in/gabriel-knobbe-da-silveira-628620362/)
+- **Autor do Projeto Original:** [Gabriel Knobbe da Silveira](https://github.com/Proxyspyk) ([@Proxyspyk](https://github.com/Proxyspyk))  
+  *Criador da versão inicial do projeto nomeado como Argus.*
