@@ -7,3 +7,13 @@ dist/
 .venv/
 venv/
 report.json
+
+# Build outputs (.NET / C#)
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+*.user
+*.userosscache
+*.sln.docstates
+
