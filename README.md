@@ -1,4 +1,3 @@
-[![tests](https://github.com/Proxyspyk/Heimdall/actions/workflows/tests.yml/badge.svg)](https://github.com/Proxyspyk/Heimdall/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![dotnet](https://img.shields.io/badge/dotnet-10.0%20(Native%20AOT)-blue)](Heimdall.csproj)
 [![architecture](https://img.shields.io/badge/architecture-CQRS%20--%20Single--File-brightgreen)](Abstractions/)
